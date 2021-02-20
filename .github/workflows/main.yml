@@ -4,7 +4,7 @@ name: Continuous Integration
 
 jobs:
   check:
-    name: Compile check
+    name: Check
     runs-on: ubuntu-20.04
     steps:
       - name: Checkout code
@@ -43,7 +43,7 @@ jobs:
           command: clippy
           args: -- -D warnings
   test:
-    name: Compile check
+    name: Test
     runs-on: ubuntu-20.04
     steps:
       - name: Checkout code

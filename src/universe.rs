@@ -11,7 +11,7 @@ pub struct Universe {
 #[wasm_bindgen]
 impl Universe {
   // constructor for a new Universe
-  pub fn new() -> Universe {
+  pub fn new() -> Self {
     utils::set_panic_hook();
 
     let width = 64;
@@ -92,6 +92,12 @@ impl Universe {
 
     let _timer = Timer::new("free old cells");
     self.cells = next;
+  }
+}
+
+impl Default for Universe {
+  fn default() -> Self {
+    Universe::new()
   }
 }
 
