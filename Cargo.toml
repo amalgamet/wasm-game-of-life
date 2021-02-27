@@ -22,6 +22,7 @@ features = [
   "HtmlCanvasElement",
   "WebGlBuffer",
   "WebGlProgram",
+  "WebGlRenderBuffer",
   "WebGlRenderingContext",
   "WebGlShader",
   "WebGlUniformLocation",
