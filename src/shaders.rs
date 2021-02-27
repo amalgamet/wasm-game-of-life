@@ -65,7 +65,7 @@ fn get_ctx<T: JsCast>(ctx_name: &str) -> Result<T, JsValue> {
   ctx.dyn_into::<T>().map_err(JsValue::from)
 }
 
-pub fn render_pipeline(vertices: &Vec<f32>) -> Result<(), JsValue> {
+pub fn render_pipeline(vertices: &[f32]) -> Result<(), JsValue> {
   let context: WebGlRenderingContext = get_ctx("webgl")?;
 
   let buffer = context.create_buffer().ok_or("failed to create buffer")?;
