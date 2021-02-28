@@ -1,61 +1,66 @@
 import {
-  animationWebgl,
-  setupComputeProgram,
   setupCopyProgram,
-  setupDisplayMonochrome,
-  setupInitProgram,
+  setupDisplayMonochromeProgram,
+  setupDisplayProgram,
+  setupComputeProgram,
+  animationWebgl,
   setupWebgl,
 } from 'wasm-game-of-life';
 
-let lastCall = 0;
-let sum = 0;
+import ZingTouch from 'zingtouch';
 
-let canvas = document.getElementById('game-of-life-canvas');
-let rect = canvas.getBoundingClientRect();
+const canvas = document.getElementById('game-of-life-canvas');
+const brect = canvas.getBoundingClientRect();
+canvas.setAttribute('width', brect.width);
+canvas.setAttribute('height', brect.height);
 
-let bWidth = rect.width;
-let bHeight = rect.height;
+const colorProgram = setupDisplayProgram();
+const monochromeProgram = setupDisplayMonochromeProgram();
+const computeProgram = setupComputeProgram();
+const copyProgram = setupCopyProgram();
 
-let mWidth = Math.floor(bWidth / 8);
-let mHeight = Math.floor(bHeight / 8);
+let drawProgram = colorProgram;
 
-canvas.setAttribute('width', bWidth);
-canvas.setAttribute('height', bHeight);
+let activeRegion = ZingTouch.Region(canvas);
 
-let state = setupWebgl(mWidth, mHeight);
-let initProgram = setupInitProgram();
-let monochrome = setupDisplayMonochrome();
-let computeProgram = setupComputeProgram();
-let copyProgram = setupCopyProgram();
-
-let drawProgram = initProgram;
-
-document.getElementById('swap_colors').addEventListener('change', () => {
-  if (drawProgram == initProgram) {
-    drawProgram = monochrome;
+activeRegion.bind(canvas, 'tap', () => {
+  if (drawProgram == colorProgram) {
+    drawProgram = monochromeProgram;
   } else {
-    drawProgram = initProgram;
+    drawProgram = colorProgram;
   }
 });
 
-for (let i = 0; i < 100; i++) {
-  animationWebgl(drawProgram, computeProgram, copyProgram, mWidth, mHeight, state);
-}
+let main = (cellsPerInch) => {
+  const ppi = window.devicePixelRatio * 96;
+  const mWidth = Math.floor((brect.width / ppi) * cellsPerInch);
+  const mHeight = Math.floor((brect.height / ppi) * cellsPerInch);
 
-const renderLoop = (timestamp) => {
-  const delta = timestamp - lastCall;
+  const state = setupWebgl(mWidth, mHeight);
 
-  lastCall = timestamp;
-  sum += delta;
+  let lastCall = 0;
+  let cum = 0;
 
-  let fps = document.getElementById('frames-per-second').value;
-
-  if (sum > 1000 / fps) {
+  // skip first 100 iterations
+  for (let i = 0; i < 100; i += 1) {
     animationWebgl(drawProgram, computeProgram, copyProgram, mWidth, mHeight, state);
-    sum = 0;
   }
+
+  const renderLoop = (timestamp) => {
+    const delta = timestamp - lastCall;
+    lastCall = timestamp;
+    cum += delta;
+
+    let fps = 60;
+    if (cum > 1000 / fps) {
+      animationWebgl(drawProgram, computeProgram, copyProgram, mWidth, mHeight, state);
+      cum = 0;
+    }
+
+    requestAnimationFrame(renderLoop);
+  };
 
   requestAnimationFrame(renderLoop);
 };
 
-requestAnimationFrame(renderLoop);
+main(80);

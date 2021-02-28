@@ -15,8 +15,8 @@ pub fn animation_webgl(
   shaders::render_pipeline(program, compute_program, copy_program, w, h, state)
 }
 
-#[wasm_bindgen(js_name = "setupDisplayMonochrome")]
-pub fn setup_display_monochrome() -> Result<Program, JsValue> {
+#[wasm_bindgen(js_name = "setupDisplayMonochromeProgram")]
+pub fn setup_display_monochrome_program() -> Result<Program, JsValue> {
   shaders::setup_display_monochrome_program()
 }
 
@@ -25,8 +25,8 @@ pub fn setup_compute_program() -> Result<Program, JsValue> {
   shaders::setup_compute_program()
 }
 
-#[wasm_bindgen(js_name = "setupInitProgram")]
-pub fn setup_init_program() -> Result<Program, JsValue> {
+#[wasm_bindgen(js_name = "setupDisplayProgram")]
+pub fn setup_display_program() -> Result<Program, JsValue> {
   shaders::setup_display_program()
 }
 
