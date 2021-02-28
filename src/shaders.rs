@@ -1,5 +1,4 @@
 use glsmrs as gl;
-use js_sys;
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -71,13 +70,13 @@ pub fn setup_shaders(w: u32, h: u32) -> Result<gl::GlState, JsValue> {
   Ok(state)
 }
 
-pub fn setup_display_monochrome_program() -> Result<gl::Program, JsValue> {
+pub fn shader(frag_shader: &str) -> Result<gl::Program, JsValue> {
   let context: WebGl = get_ctx("webgl")?;
 
   gl::Program::new(
     &context,
     include_str!("../shaders/dummy.vert"),
-    include_str!("../shaders/display_monochrome.frag"),
+    frag_shader,
     vec![gl::UniformDescription::new(
       "state",
       gl::UniformType::Sampler2D,
@@ -87,45 +86,19 @@ pub fn setup_display_monochrome_program() -> Result<gl::Program, JsValue> {
       gl::AttributeDescription::new("uv", gl::AttributeType::Vector2),
     ],
   )
-  .map_err(|e| JsValue::from(e))
+  .map_err(JsValue::from)
+}
+
+pub fn setup_display_monochrome_program() -> Result<gl::Program, JsValue> {
+  shader(include_str!("../shaders/display_monochrome.frag"))
 }
 
 pub fn setup_display_program() -> Result<gl::Program, JsValue> {
-  let context: WebGl = get_ctx("webgl")?;
-
-  gl::Program::new(
-    &context,
-    include_str!("../shaders/dummy.vert"),
-    include_str!("../shaders/display.frag"),
-    vec![gl::UniformDescription::new(
-      "state",
-      gl::UniformType::Sampler2D,
-    )],
-    vec![
-      gl::AttributeDescription::new("position", gl::AttributeType::Vector2),
-      gl::AttributeDescription::new("uv", gl::AttributeType::Vector2),
-    ],
-  )
-  .map_err(JsValue::from)
+  shader(include_str!("../shaders/display.frag"))
 }
 
 pub fn setup_copy_program() -> Result<gl::Program, JsValue> {
-  let context: WebGl = get_ctx("webgl")?;
-
-  gl::Program::new(
-    &context,
-    include_str!("../shaders/dummy.vert"),
-    include_str!("../shaders/copy.frag"),
-    vec![gl::UniformDescription::new(
-      "state",
-      gl::UniformType::Sampler2D,
-    )],
-    vec![
-      gl::AttributeDescription::new("position", gl::AttributeType::Vector2),
-      gl::AttributeDescription::new("uv", gl::AttributeType::Vector2),
-    ],
-  )
-  .map_err(JsValue::from)
+  shader(include_str!("../shaders/copy.frag"))
 }
 
 pub fn setup_compute_program() -> Result<gl::Program, JsValue> {
