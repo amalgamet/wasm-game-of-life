@@ -1,10 +1,9 @@
+use glsmrs as gl;
+use js_sys;
+use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::WebGlRenderingContext as WebGl;
-
-use std::collections::HashMap;
-
-use glsmrs as gl;
 
 pub fn get_canvas() -> Option<web_sys::HtmlCanvasElement> {
   let document = web_sys::window()?.document()?;
@@ -22,7 +21,7 @@ fn get_ctx<T: JsCast>(ctx_name: &str) -> Result<T, JsValue> {
   ctx.dyn_into::<T>().map_err(JsValue::from)
 }
 
-pub fn setup_shaders() -> Result<gl::GlState, JsValue> {
+pub fn setup_shaders(w: u32, h: u32) -> Result<gl::GlState, JsValue> {
   let canvas = get_canvas().ok_or_else(|| JsValue::from_str("Failed to get canvas"))?;
   let context: WebGl = get_ctx("webgl")?;
 
@@ -52,23 +51,43 @@ pub fn setup_shaders() -> Result<gl::GlState, JsValue> {
       .collect::<Vec<u8>>()
   };
 
-  let tex_state = (0..canvas.width() * canvas.height())
-    .map(|idx: u32| if idx % 2 == 0 || idx % 7 == 0 { 1 } else { 0 })
+  let tex_state = (0..w * h)
+    .map(|idx: u32| {
+      if js_sys::Math::random() > 0.9 || idx % 7 == 0 {
+        1
+      } else {
+        0
+      }
+    })
     .collect::<Vec<u32>>();
 
   state
     .vertex_buffer("position", packf32(&vertices).as_slice())?
     .vertex_buffer("uv", packf32(&uvs).as_slice())?
     .element_buffer(packu16(&indices).as_slice())?
-    .texture(
-      "display",
-      Some(packu32(&tex_state).as_slice()),
-      canvas.width(),
-      canvas.height(),
-    )?
-    .texture("state", None, canvas.width(), canvas.height())?;
+    .texture("display", Some(packu32(&tex_state).as_slice()), w, h)?
+    .texture("state", None, w, h)?;
 
   Ok(state)
+}
+
+pub fn setup_display_monochrome_program() -> Result<gl::Program, JsValue> {
+  let context: WebGl = get_ctx("webgl")?;
+
+  gl::Program::new(
+    &context,
+    include_str!("../shaders/dummy.vert"),
+    include_str!("../shaders/display_monochrome.frag"),
+    vec![gl::UniformDescription::new(
+      "state",
+      gl::UniformType::Sampler2D,
+    )],
+    vec![
+      gl::AttributeDescription::new("position", gl::AttributeType::Vector2),
+      gl::AttributeDescription::new("uv", gl::AttributeType::Vector2),
+    ],
+  )
+  .map_err(|e| JsValue::from(e))
 }
 
 pub fn setup_display_program() -> Result<gl::Program, JsValue> {
@@ -78,6 +97,25 @@ pub fn setup_display_program() -> Result<gl::Program, JsValue> {
     &context,
     include_str!("../shaders/dummy.vert"),
     include_str!("../shaders/display.frag"),
+    vec![gl::UniformDescription::new(
+      "state",
+      gl::UniformType::Sampler2D,
+    )],
+    vec![
+      gl::AttributeDescription::new("position", gl::AttributeType::Vector2),
+      gl::AttributeDescription::new("uv", gl::AttributeType::Vector2),
+    ],
+  )
+  .map_err(JsValue::from)
+}
+
+pub fn setup_copy_program() -> Result<gl::Program, JsValue> {
+  let context: WebGl = get_ctx("webgl")?;
+
+  gl::Program::new(
+    &context,
+    include_str!("../shaders/dummy.vert"),
+    include_str!("../shaders/copy.frag"),
     vec![gl::UniformDescription::new(
       "state",
       gl::UniformType::Sampler2D,
@@ -118,17 +156,17 @@ pub fn make_quad() -> ([f32; 8], [f32; 8], [u16; 6]) {
 }
 
 pub fn render_pipeline(
-  program: &gl::Program,
+  display_program: &gl::Program,
   compute_program: &gl::Program,
+  copy_program: &gl::Program,
+  w: u32,
+  h: u32,
   state: &mut gl::GlState,
 ) -> Result<(), JsValue> {
-  let canvas = get_canvas().ok_or_else(|| JsValue::from_str("Failed to get canvas"))?;
   let context: WebGl = get_ctx("webgl")?;
 
   context.clear_color(0.0, 0.0, 0.0, 1.0);
   context.clear(WebGl::COLOR_BUFFER_BIT);
-
-  let (w, h) = (canvas.width(), canvas.height());
 
   let uniforms = vec![
     ("canvasSize", gl::UniformData::Vector2([w as f32, h as f32])),
@@ -137,17 +175,14 @@ pub fn render_pipeline(
   .into_iter()
   .collect::<HashMap<_, _>>();
 
-  let copy_uniforms = vec![
-    ("canvasSize", gl::UniformData::Vector2([w as f32, h as f32])),
-    ("state", gl::UniformData::Texture("state")),
-  ]
-  .into_iter()
-  .collect::<HashMap<_, _>>();
+  let copy_uniforms = vec![("state", gl::UniformData::Texture("state"))]
+    .into_iter()
+    .collect::<HashMap<_, _>>();
 
   state
     .run_mut(&compute_program, &uniforms, "state")?
-    .run_mut(&program, &copy_uniforms, "display")?
-    .run(&program, &uniforms)?;
+    .run_mut(&copy_program, &copy_uniforms, "display")?
+    .run(&display_program, &uniforms)?;
 
   Ok(())
 }

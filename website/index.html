@@ -16,18 +16,25 @@
         overflow: hidden;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
+        justify-content: start;
       }
 
       canvas {
         display: block;
-        width: 1280px;
-        height: 720px;
+        width: 100vw;
+        height: 90vh;
         image-rendering: crisp-edges;
       }
 
       label {
         color: white;
+      }
+
+      .controls {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
       }
     </style>
   </head>
@@ -36,8 +43,12 @@
       This page contains webassembly and javascript content, please enable javascript in your browser.
     </noscript>
     <canvas id="game-of-life-canvas"></canvas>
-    <label>Frames per second</label>
-    <input id="frames-per-second" type="range" min="1" max="60" step="1" value="60" />
+    <div class="controls">
+      <label style="color: white">Colors</label>
+      <input id="swap_colors" type="checkbox" checked />
+      <label style="color: white">FPS</label>
+      <input id="frames-per-second" type="range" min="1" max="60" step="1" value="60" />
+    </div>
     <script src="./bootstrap.js"></script>
   </body>
 </html>
