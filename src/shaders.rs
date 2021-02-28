@@ -1,59 +1,16 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{window, HtmlCanvasElement, WebGlProgram, WebGlRenderingContext, WebGlShader};
+use web_sys::WebGlRenderingContext as WebGl;
 
-fn compile_shader(
-  ctx: &WebGlRenderingContext,
-  shader_type: u32,
-  source: &str,
-) -> Result<WebGlShader, String> {
-  let shader = ctx
-    .create_shader(shader_type)
-    .ok_or_else(|| String::from("Unable to create shader object"))?;
-  ctx.shader_source(&shader, source);
-  ctx.compile_shader(&shader);
+use std::collections::HashMap;
 
-  if ctx
-    .get_shader_parameter(&shader, WebGlRenderingContext::COMPILE_STATUS)
-    .as_bool()
-    .unwrap_or(false)
-  {
-    Ok(shader)
-  } else {
-    Err(
-      ctx
-        .get_shader_info_log(&shader)
-        .unwrap_or_else(|| String::from("Unknown error creating shader")),
-    )
-  }
-}
+use glsmrs as gl;
 
-fn link_program(
-  ctx: &WebGlRenderingContext,
-  vert_shader: &WebGlShader,
-  frag_shader: &WebGlShader,
-) -> Result<WebGlProgram, String> {
-  let program = ctx
-    .create_program()
-    .ok_or_else(|| String::from("Unable to create shader object"))?;
+pub fn get_canvas() -> Option<web_sys::HtmlCanvasElement> {
+  let document = web_sys::window()?.document()?;
+  let canvas = document.get_element_by_id("game-of-life-canvas")?;
 
-  ctx.attach_shader(&program, vert_shader);
-  ctx.attach_shader(&program, frag_shader);
-  ctx.link_program(&program);
-
-  if ctx
-    .get_program_parameter(&program, WebGlRenderingContext::LINK_STATUS)
-    .as_bool()
-    .unwrap_or(false)
-  {
-    Ok(program)
-  } else {
-    Err(
-      ctx
-        .get_program_info_log(&program)
-        .unwrap_or_else(|| String::from("Unknown error creating program object")),
-    )
-  }
+  canvas.dyn_into::<web_sys::HtmlCanvasElement>().ok()
 }
 
 fn get_ctx<T: JsCast>(ctx_name: &str) -> Result<T, JsValue> {
@@ -65,90 +22,132 @@ fn get_ctx<T: JsCast>(ctx_name: &str) -> Result<T, JsValue> {
   ctx.dyn_into::<T>().map_err(JsValue::from)
 }
 
-pub fn render_pipeline(vertices: &[f32]) -> Result<(), JsValue> {
-  let context: WebGlRenderingContext = get_ctx("webgl")?;
-
-  let buffer = context.create_buffer().ok_or("failed to create buffer")?;
-  context.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&buffer));
-
-  unsafe {
-    let vert_array = js_sys::Float32Array::view(&vertices);
-    context.buffer_data_with_array_buffer_view(
-      WebGlRenderingContext::ARRAY_BUFFER,
-      &vert_array,
-      WebGlRenderingContext::STATIC_DRAW,
-    );
-  }
-
-  context.vertex_attrib_pointer_with_i32(0, 2, WebGlRenderingContext::FLOAT, false, 0, 0);
-  context.enable_vertex_attrib_array(0);
-
-  context.clear_color(0.0, 0.0, 0.0, 1.0);
-  context.clear(WebGlRenderingContext::COLOR_BUFFER_BIT);
-
-  for c in (0..vertices.len()).step_by(8) {
-    context.draw_arrays(
-      WebGlRenderingContext::TRIANGLE_FAN,
-      c as i32,
-      (8 / 2) as i32,
-    );
-  }
-
-  Ok(())
-}
-
-pub fn get_canvas() -> Option<HtmlCanvasElement> {
-  let document = window()?.document()?;
-  let canvas = document.get_element_by_id("game-of-life-canvas")?;
-
-  canvas.dyn_into::<HtmlCanvasElement>().ok()
-}
-
-pub fn setup_shaders() -> Result<WebGlRenderingContext, JsValue> {
+pub fn setup_shaders() -> Result<gl::GlState, JsValue> {
   let canvas = get_canvas().ok_or_else(|| JsValue::from_str("Failed to get canvas"))?;
-  let context = get_ctx("webgl")?;
+  let context: WebGl = get_ctx("webgl")?;
 
-  let vert_shader = compile_shader(
+  let (vertices, uvs, indices) = make_quad();
+
+  let mut state = gl::GlState::new(
     &context,
-    WebGlRenderingContext::VERTEX_SHADER,
-    r#"
-        precision highp float;
-        attribute vec2 position;
-        uniform vec2 canvasSize;
-        void main() {
-            vec2 zeroOne = position / canvasSize;
-            vec2 clipSpace = zeroOne * 2.0 - 1.0;
-            gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
-        }
-    "#,
-  )?;
-  let frag_shader = compile_shader(
-    &context,
-    WebGlRenderingContext::FRAGMENT_SHADER,
-    r#"
-        precision highp float;
-        void main() {
-            gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
-        }
-    "#,
-  )?;
-  let program = link_program(&context, &vert_shader, &frag_shader)?;
-  context.use_program(Some(&program));
-
-  let canvas_size = context
-    .get_uniform_location(&program, "canvasSize")
-    .ok_or_else(|| {
-      JsValue::from(format!(
-        "Failed to get uniform uCol: {}",
-        context.get_error()
-      ))
-    })?;
-
-  context.uniform2f(
-    Some(&canvas_size),
-    canvas.width() as f32,
-    canvas.height() as f32,
+    gl::Viewport {
+      w: canvas.width(),
+      h: canvas.height(),
+    },
   );
 
-  Ok(context)
+  let packf32 = |v: &[f32]| {
+    v.iter()
+      .flat_map(|el| el.to_ne_bytes().to_vec())
+      .collect::<Vec<u8>>()
+  };
+  let packu16 = |v: &[u16]| {
+    v.iter()
+      .flat_map(|el| el.to_ne_bytes().to_vec())
+      .collect::<Vec<u8>>()
+  };
+  let packu32 = |v: &[u32]| {
+    v.iter()
+      .flat_map(|el| el.to_ne_bytes().to_vec())
+      .collect::<Vec<u8>>()
+  };
+
+  let tex_state = (0..canvas.width() * canvas.height())
+    .map(|idx: u32| if idx % 2 == 0 || idx % 7 == 0 { 1 } else { 0 })
+    .collect::<Vec<u32>>();
+
+  state
+    .vertex_buffer("position", packf32(&vertices).as_slice())?
+    .vertex_buffer("uv", packf32(&uvs).as_slice())?
+    .element_buffer(packu16(&indices).as_slice())?
+    .texture(
+      "display",
+      Some(packu32(&tex_state).as_slice()),
+      canvas.width(),
+      canvas.height(),
+    )?
+    .texture("state", None, canvas.width(), canvas.height())?;
+
+  Ok(state)
+}
+
+pub fn setup_display_program() -> Result<gl::Program, JsValue> {
+  let context: WebGl = get_ctx("webgl")?;
+
+  gl::Program::new(
+    &context,
+    include_str!("../shaders/dummy.vert"),
+    include_str!("../shaders/display.frag"),
+    vec![gl::UniformDescription::new(
+      "state",
+      gl::UniformType::Sampler2D,
+    )],
+    vec![
+      gl::AttributeDescription::new("position", gl::AttributeType::Vector2),
+      gl::AttributeDescription::new("uv", gl::AttributeType::Vector2),
+    ],
+  )
+  .map_err(JsValue::from)
+}
+
+pub fn setup_compute_program() -> Result<gl::Program, JsValue> {
+  let context: WebGl = get_ctx("webgl")?;
+
+  gl::Program::new(
+    &context,
+    include_str!("../shaders/dummy.vert"),
+    include_str!("../shaders/compute.frag"),
+    vec![
+      gl::UniformDescription::new("state", gl::UniformType::Sampler2D),
+      gl::UniformDescription::new("canvasSize", gl::UniformType::Vector2),
+    ],
+    vec![
+      gl::AttributeDescription::new("position", gl::AttributeType::Vector2),
+      gl::AttributeDescription::new("uv", gl::AttributeType::Vector2),
+    ],
+  )
+  .map_err(JsValue::from)
+}
+
+pub fn make_quad() -> ([f32; 8], [f32; 8], [u16; 6]) {
+  let vertices: [f32; 8] = [-1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0];
+  let uvs: [f32; 8] = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+  let indices: [u16; 6] = [0, 1, 2, 2, 3, 0];
+
+  (vertices, uvs, indices)
+}
+
+pub fn render_pipeline(
+  program: &gl::Program,
+  compute_program: &gl::Program,
+  state: &mut gl::GlState,
+) -> Result<(), JsValue> {
+  let canvas = get_canvas().ok_or_else(|| JsValue::from_str("Failed to get canvas"))?;
+  let context: WebGl = get_ctx("webgl")?;
+
+  context.clear_color(0.0, 0.0, 0.0, 1.0);
+  context.clear(WebGl::COLOR_BUFFER_BIT);
+
+  let (w, h) = (canvas.width(), canvas.height());
+
+  let uniforms = vec![
+    ("canvasSize", gl::UniformData::Vector2([w as f32, h as f32])),
+    ("state", gl::UniformData::Texture("display")),
+  ]
+  .into_iter()
+  .collect::<HashMap<_, _>>();
+
+  let copy_uniforms = vec![
+    ("canvasSize", gl::UniformData::Vector2([w as f32, h as f32])),
+    ("state", gl::UniformData::Texture("state")),
+  ]
+  .into_iter()
+  .collect::<HashMap<_, _>>();
+
+  state
+    .run_mut(&compute_program, &uniforms, "state")?
+    .run_mut(&program, &copy_uniforms, "display")?
+    .run(&program, &uniforms)?;
+
+  Ok(())
 }
