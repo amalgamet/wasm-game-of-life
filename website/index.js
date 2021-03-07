@@ -1,171 +1,66 @@
-import { memory } from 'wasm-game-of-life/wasm_game_of_life_bg';
-import { Cell, Universe } from 'wasm-game-of-life';
+import {
+  setupCopyProgram,
+  setupDisplayMonochromeProgram,
+  setupDisplayProgram,
+  setupComputeProgram,
+  animationWebgl,
+  setupWebgl,
+} from 'wasm-game-of-life';
 
-const CELL_SIZE = 5; // px
-const GRID_COLOR = '#CCCCCC';
-const DEAD_COLOR = '#FFFFFF';
-const ALIVE_COLOR = '#000000';
-
-const universe = Universe.new();
-const width = universe.width();
-const height = universe.height();
+import ZingTouch from 'zingtouch';
 
 const canvas = document.getElementById('game-of-life-canvas');
-canvas.width = (CELL_SIZE + 1) * width + 1;
-canvas.height = (CELL_SIZE + 1) * height + 1;
+const brect = canvas.getBoundingClientRect();
+canvas.setAttribute('width', brect.width);
+canvas.setAttribute('height', brect.height);
 
-const ctx = canvas.getContext('2d');
+const colorProgram = setupDisplayProgram();
+const monochromeProgram = setupDisplayMonochromeProgram();
+const computeProgram = setupComputeProgram();
+const copyProgram = setupCopyProgram();
 
-const fps = new (class {
-  constructor() {
-    this.fps = document.getElementById('fps');
-    this.frames = [];
-    this.lastFrameTimeStamp = performance.now();
-  }
+let drawProgram = colorProgram;
 
-  render() {
-    const now = performance.now();
-    const delta = now - this.lastFrameTimeStamp;
-    this.lastFrameTimeStamp = now;
-    const fps = (1 / delta) * 1000;
+let activeRegion = ZingTouch.Region(canvas);
 
-    this.frames.push(fps);
-    if (this.frames.length > 100) {
-      this.frames.shift();
-    }
-
-    let min = Infinity;
-    let max = -Infinity;
-    let sum = 0;
-
-    for (let i = 0; i < this.frames.length; i++) {
-      sum += this.frames[i];
-      min = Math.min(this.frames[i], min);
-      max = Math.min(this.frames[i], max);
-    }
-
-    let mean = sum / this.frames.length;
-
-    this.fps.textContent = `
-Frames per second:
-             latest = ${Math.round(fps)}
-    avg of last 100 = ${Math.round(mean)}
-    min of last 100 = ${Math.round(min)}
-    max of last 100 = ${Math.round(max)}
-`.trim();
-  }
-})();
-
-const drawGrid = () => {
-  ctx.beginPath();
-  ctx.strokeStyle = GRID_COLOR;
-
-  // Vertical lines.
-  for (let i = 0; i <= width; i++) {
-    ctx.moveTo(i * (CELL_SIZE + 1) + 1, 0);
-    ctx.lineTo(i * (CELL_SIZE + 1) + 1, (CELL_SIZE + 1) * height + 1);
-  }
-
-  // Horizontal lines.
-  for (let j = 0; j <= height; j++) {
-    ctx.moveTo(0, j * (CELL_SIZE + 1) + 1);
-    ctx.lineTo((CELL_SIZE + 1) * width + 1, j * (CELL_SIZE + 1) + 1);
-  }
-
-  ctx.stroke();
-};
-
-const getIndex = (row, column) => {
-  return row * width + column;
-};
-
-const drawCells = () => {
-  const cellsPtr = universe.cells();
-  const cells = new Uint8Array(memory.buffer, cellsPtr, width * height);
-
-  ctx.beginPath();
-
-  ctx.fillStyle = ALIVE_COLOR;
-  for (let row = 0; row < height; row++) {
-    for (let col = 0; col < width; col++) {
-      const idx = getIndex(row, col);
-
-      if (cells[idx] !== Cell.Alive) {
-        continue;
-      }
-
-      ctx.fillRect(col * (CELL_SIZE + 1) + 1, row * (CELL_SIZE + 1) + 1, CELL_SIZE, CELL_SIZE);
-    }
-  }
-
-  ctx.fillStyle = DEAD_COLOR;
-  for (let row = 0; row < height; row++) {
-    for (let col = 0; col < width; col++) {
-      const idx = getIndex(row, col);
-
-      if (cells[idx] !== Cell.Dead) {
-        continue;
-      }
-
-      ctx.fillRect(col * (CELL_SIZE + 1) + 1, row * (CELL_SIZE + 1) + 1, CELL_SIZE, CELL_SIZE);
-    }
-  }
-
-  ctx.stroke();
-};
-
-let animationId = null;
-const playPauseButton = document.getElementById('play-pause');
-
-const isPaused = () => {
-  return animationId === null;
-};
-
-const play = () => {
-  playPauseButton.textContent = '⏸';
-  renderLoop();
-};
-
-const pause = () => {
-  playPauseButton.textContent = '▶️';
-  cancelAnimationFrame(animationId);
-  animationId = null;
-};
-
-playPauseButton.addEventListener('click', () => {
-  if (isPaused()) {
-    play();
+activeRegion.bind(canvas, 'tap', () => {
+  if (drawProgram == colorProgram) {
+    drawProgram = monochromeProgram;
   } else {
-    pause();
+    drawProgram = colorProgram;
   }
 });
 
-canvas.addEventListener('click', (e) => {
-  const boundingRect = canvas.getBoundingClientRect();
+let main = (cellsPerInch) => {
+  const ppi = window.devicePixelRatio * 96;
+  const mWidth = Math.floor((brect.width / ppi) * cellsPerInch);
+  const mHeight = Math.floor((brect.height / ppi) * cellsPerInch);
 
-  const scaleX = canvas.width / boundingRect.width;
-  const scaleY = canvas.height / boundingRect.height;
+  const state = setupWebgl(mWidth, mHeight);
 
-  const canvasLeft = (e.clientX - boundingRect.left) * scaleX;
-  const canvasTop = (e.clientY - boundingRect.top) * scaleY;
+  let lastCall = 0;
+  let cum = 0;
 
-  const row = Math.min(Math.floor(canvasTop / (CELL_SIZE + 1)), height - 1);
-  const col = Math.min(Math.floor(canvasLeft / (CELL_SIZE + 1)), width - 1);
+  // skip first 100 iterations
+  for (let i = 0; i < 100; i += 1) {
+    animationWebgl(drawProgram, computeProgram, copyProgram, mWidth, mHeight, state);
+  }
 
-  universe.toggle_cell(row, col);
+  const renderLoop = (timestamp) => {
+    const delta = timestamp - lastCall;
+    lastCall = timestamp;
+    cum += delta;
 
-  drawGrid();
-  drawCells();
-});
+    let fps = 60;
+    if (cum > 1000 / fps) {
+      animationWebgl(drawProgram, computeProgram, copyProgram, mWidth, mHeight, state);
+      cum = 0;
+    }
 
-const renderLoop = () => {
-  fps.render();
-  universe.tick();
-  drawGrid();
-  drawCells();
-  animationId = requestAnimationFrame(renderLoop);
+    requestAnimationFrame(renderLoop);
+  };
+
+  requestAnimationFrame(renderLoop);
 };
 
-drawGrid();
-drawCells();
-play();
+main(80);
