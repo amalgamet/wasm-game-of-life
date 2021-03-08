@@ -1,7 +1,8 @@
 // import { withRouter } from 'next/router'
-// import dynamic from 'next/dynamic'
+import dynamic from 'next/dynamic';
 // import Link from 'next/link'
-import Canvas from '../components/Canvas';
+
+const Canvas = dynamic(() => import('../components/Canvas'), { ssr: false });
 
 export default function Page() {
   const draw = (ctx, frameCount) => {
@@ -12,15 +13,7 @@ export default function Page() {
     ctx.fill();
   };
 
-  return (
-    <Canvas
-      draw={draw}
-      style={{
-        width: '100vw',
-        height: '100vh',
-      }}
-    />
-  );
+  return <Canvas draw={draw} />;
 }
 
 // const RustComponent = dynamic({
